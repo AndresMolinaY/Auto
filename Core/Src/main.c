@@ -131,6 +131,7 @@ int main(void)
   while (1)
   {
 	  //Hola Andres
+	  //gf
 	  enc1 = __HAL_TIM_GET_COUNTER(&htim2);
 	  enc2 = __HAL_TIM_GET_COUNTER(&htim3);
 	  HAL_Delay(10000);
