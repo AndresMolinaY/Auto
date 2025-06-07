@@ -134,19 +134,21 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  //Hola Andres
-	  //gf
+
 	  enc1 = __HAL_TIM_GET_COUNTER(&htim2);
 	  enc2 = __HAL_TIM_GET_COUNTER(&htim3);
-	  HAL_Delay(10000);
-	  __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_1, pwmValue);
-	  __HAL_TIM_SET_COMPARE(&htim3,TIM_CHANNEL_2, 0);
+	  HAL_Delay(100);
 
+	  //Llantas traseras
+	  HAL_Delay(5000);
+	  __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_3, pwmValue ); //atras derecha
+	  __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4, pwmValue+3); //Atras izq
 
-	  __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1, pwmValue);
-	  __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2, 0);
+	  //Llantas delanteras
+	  __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,pwmValue); //Adelante Derecha
+	  __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2, pwmValue+3);//Adelante Izquierda llanta
 
-		  HAL_Delay(200); // Para evitar saturar la consola
+	  HAL_Delay(100);
 
     /* USER CODE END WHILE */
 
