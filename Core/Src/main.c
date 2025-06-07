@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include "string.h"
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,17 +53,34 @@ UART_HandleTypeDef huart1;
 /* USER CODE BEGIN PV */
 extern volatile int32_t encoder3_count;
 extern volatile int32_t encoder4_count;
-volatile int16_t enc1 = 0;
-volatile int16_t enc2 = 0;
-uint8_t pwmValue = 80;
-uint8_t circunferenciaLlantaCM = 21.5;
-uint16_t distanciaObjetivo = 463;
-float distanciaActual = 0;
+volatile int32_t enc1 = 0;
+volatile int32_t enc2 = 0;
+uint8_t pwmValue = 80; //VALOR PWM
+uint8_t circunferenciaLlantaCM = 21.4; //Calculado con pi * diametro = pi*68.1mm
+#define ENC1_PULSOS_CM 92.3
+#define ENC2_PULSOS_CM 92.5
+#define ENC3_PULSOS_CM 24.2
+#define ENC4_PULSOS_CM 24.9
+int32_t enc1_ini = 0;
+int32_t enc2_ini = 0;
+int32_t enc3_ini = 0;
+int32_t enc4_ini = 0;
+
+int32_t avance1 = 0;
+int32_t avance2 = 0;
+int32_t avance3 = 0;
+int32_t avance4 = 0;
+
+int32_t objetivo1 = 0;
+int32_t objetivo2 = 0;
+int32_t objetivo3 = 0;
+int32_t objetivo4 = 0;
+
 
 uint8_t data = 0b00001100;
 char msg[17] = "";
 char num[17] = "";
-
+float distancia_cm = 200.0; // VALOR PARA DISTANCIA DESEADA EN CM
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -81,6 +99,7 @@ static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN 0 */
 volatile int32_t encoder3_count = 0;
 volatile int32_t encoder4_count = 0;
+
 
 /* USER CODE END 0 */
 
@@ -128,32 +147,71 @@ int main(void)
   __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,0);
   __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_3,0);
   __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,0);
+  // Leer posición inicial
+  enc1_ini = __HAL_TIM_GET_COUNTER(&htim2); // Encoder 1
+  enc2_ini = __HAL_TIM_GET_COUNTER(&htim3); // Encoder 2
+  enc3_ini = encoder3_count; // Encoder 3 por interrupción
+  enc4_ini = encoder4_count; // Encoder 4 por interrupción
+
+  objetivo1 = distancia_cm * ENC1_PULSOS_CM;  //Calcular pulsos
+  objetivo2 = distancia_cm * ENC2_PULSOS_CM;
+  objetivo3 = distancia_cm * ENC3_PULSOS_CM;
+  objetivo4 = distancia_cm * ENC4_PULSOS_CM;
+
+
+  //ELIMINARRRRR DESPUESSSS LO DE ABAJO DE WRITEPINES
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
   while (1)
   {
+    enc1 = __HAL_TIM_GET_COUNTER(&htim2);
+    enc2 = __HAL_TIM_GET_COUNTER(&htim3);
 
-	  enc1 = __HAL_TIM_GET_COUNTER(&htim2);
-	  enc2 = __HAL_TIM_GET_COUNTER(&htim3);
-	  HAL_Delay(100);
+    avance1 = abs(enc1 - enc1_ini);
+    avance2 = abs(enc2 - enc2_ini);
+    avance3 = abs(encoder3_count - enc3_ini);
+    avance4 = abs(encoder4_count - enc4_ini);
 
-	  //Llantas traseras
-	  HAL_Delay(5000);
-	  __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_3, pwmValue ); //atras derecha
-	  __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4, pwmValue+3); //Atras izq
 
-	  //Llantas delanteras
-	  __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,pwmValue); //Adelante Derecha
-	  __HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2, pwmValue+3);//Adelante Izquierda llanta
 
-	  HAL_Delay(100);
+    if (encoder4_count < objetivo4){
+    	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,pwmValue);
+    }
+    else{
+    	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,0);
+    }
+    if (encoder3_count < objetivo3){
+    	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,pwmValue);
+    }
+    else{
+    	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,0);
+    }
+    if (enc1 < objetivo1){
+    	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,pwmValue);
+    }
+    else{
+    	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,0);
+    }
+    if (enc2 < objetivo2){
+      	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_3,pwmValue);
+      }
+      else{
+      	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_3,0);
+      }
+
+
+    HAL_Delay(10);
+  }
+
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+
   /* USER CODE END 3 */
 }
 
