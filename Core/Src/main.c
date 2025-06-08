@@ -51,53 +51,16 @@ TIM_HandleTypeDef htim4;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
-//Del Dron
-#define MPU_ADDR         (0x69 << 1)
-#define MAG_ADDR         (0x0C << 1)
-#define ACCEL_XOUT_H     59
-#define MAG_STATUS_1     2
-#define MAG_HXL          3
-#define MAG_OVERFLOW_BIT 0x08
-#define MAG_DATA_READY   0x01
-typedef struct {
-	float AccXData;
-	float AccYData;
-	float AccZData;
-	float Temp;
-	float GyroXData;
-	float GyroYData;
-	float GyroZData;
-	float MagXData;
-	float MagYData;
-	float MagZData;
-} IMU_Data;
-typedef struct {
-    float x;
-    float y;
-    float z;
-} Offset3D;
-static volatile IMU_Data lecturasIMU;
-volatile Offset3D mag_offset;
-volatile Offset3D mag_scale;
-uint32_t medicionesParaPromedio = 100;
-uint32_t vectorLecturasMagX = 0;
-uint32_t vectorLecturasMagY = 0;
-float filtradoLecturasMagX = 0;
-float filtradoLecturasMagY = 0;
-uint16_t check_flags = 0;
-//Fin del Dron
-
-
 extern volatile int32_t encoder3_count;
 extern volatile int32_t encoder4_count;
 volatile int32_t enc1 = 0;
 volatile int32_t enc2 = 0;
 uint8_t pwmValue = 80; //VALOR PWM
 uint8_t circunferenciaLlantaCM = 21.4; //Calculado con pi * diametro = pi*68.1mm
-#define ENC1_PULSOS_CM 92.3
-#define ENC2_PULSOS_CM 92.5
-#define ENC3_PULSOS_CM 24.2
-#define ENC4_PULSOS_CM 24.9
+#define ENC1_PULSOS_CM 86.4
+#define ENC2_PULSOS_CM 88.3
+#define ENC3_PULSOS_CM 21 //LLANTA DERCH DELANTERA
+#define ENC4_PULSOS_CM 22.2
 int32_t enc1_ini = 0;
 int32_t enc2_ini = 0;
 int32_t enc3_ini = 0;
@@ -117,7 +80,7 @@ int32_t objetivo4 = 0;
 uint8_t data = 0b00001100;
 char msg[17] = "";
 char num[17] = "";
-float distancia_cm = 200.0; // VALOR PARA DISTANCIA DESEADA EN CM
+float distancia_cm = 50.0; // VALOR PARA DISTANCIA DESEADA EN CM
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -129,11 +92,7 @@ static void MX_TIM4_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
-void Init_IMU(void);
-IMU_Data GetData__stMPU_9255(void);
-Offset3D ComputeMagOffset(uint16_t num_samples, uint16_t delay_ms);
-IMU_Data NormalizeMag(IMU_Data raw, Offset3D offset, Offset3D scale);
-Offset3D ComputeMagScale(uint16_t num_samples, uint16_t delay_ms, Offset3D offset);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -178,14 +137,6 @@ int main(void)
   MX_I2C2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  //Dron Innit
-  Init_IMU();
-  HAL_Delay(100);
-  mag_offset = ComputeMagOffset(500, 10);
-  mag_scale = ComputeMagScale(500, 10, mag_offset);
-  HAL_Delay(100);
-  //Dron fin Innit
-
   HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
   HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
@@ -214,6 +165,7 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  char msg[64];
 
   while (1)
   {
@@ -224,21 +176,29 @@ int main(void)
     avance2 = abs(enc2 - enc2_ini);
     avance3 = abs(encoder3_count - enc3_ini);
     avance4 = abs(encoder4_count - enc4_ini);
+//LEER Y ENVIAR COSAS BLUETTTTTTOT
 
+    sprintf(msg, "Contador: %d pulsos AdelDerech| Temp:  %d pulsos adelante Izqu \r\n", encoder3_count,encoder4_count);
+    HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+
+
+//LLANTA IZQ ADELANTE
     if (encoder4_count < objetivo4){
-    	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,pwmValue);
+    	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,pwmValue+3);
     }
     else{
     	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_2,0);
     }
+    //LLANTA DERECHA DEALNTERA
     if (encoder3_count < objetivo3){
     	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,pwmValue);
     }
     else{
     	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_1,0);
     }
+    //TRASERA IZQUIERDA
     if (enc1 < objetivo1){
-    	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,pwmValue);
+    	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,pwmValue+3);
     }
     else{
     	__HAL_TIM_SET_COMPARE(&htim4,TIM_CHANNEL_4,0);
@@ -252,20 +212,9 @@ int main(void)
 
 
     HAL_Delay(10);
-
-    //Medimos Datos
-	for (uint8_t i = 0; i < medicionesParaPromedio ;i++){
-		lecturasIMU = GetData__stMPU_9255();
-
-		lecturasIMU = NormalizeMag(GetData__stMPU_9255(), mag_offset, mag_scale);
-		vectorLecturasMagX += lecturasIMU.MagXData;
-		vectorLecturasMagY += lecturasIMU.MagYData;
-		HAL_Delay(50);
-	}
-	vectorLecturasMagX = vectorLecturasMagX / medicionesParaPromedio;
-	vectorLecturasMagY = vectorLecturasMagY / medicionesParaPromedio;
-	HAL_Delay(50);
   }
+
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -520,7 +469,7 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
+  huart1.Init.BaudRate = 9600;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
@@ -571,217 +520,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-void Init_IMU(void) {
-	uint8_t u8destVal = 0;
-	uint8_t u8sensMagVal[3] = {0};
-	uint8_t data_tx[2];
-	uint8_t reg;
-	uint8_t dev_addr = 0x69 << 1;
-	uint8_t mag_addr = 0x0C << 1;
-
-	// 0. Reset MPU
-	data_tx[0] = 0x6B; data_tx[1] = 0x80;
-	if (HAL_I2C_Master_Transmit(&hi2c2, dev_addr, data_tx, 2, HAL_MAX_DELAY) == HAL_OK) {
-		HAL_Delay(100);
-		check_flags |= (1 << 0);
-	}
-
-	// 1. Clock source
-	data_tx[0] = 0x6B; data_tx[1] = 0x01;
-	if (HAL_I2C_Master_Transmit(&hi2c2, dev_addr, data_tx, 2, HAL_MAX_DELAY) == HAL_OK) {
-		check_flags |= (1 << 1);
-	}
-
-	// 2. Gyro config
-	data_tx[0] = 0x1B; data_tx[1] = 0x00;
-	if (HAL_I2C_Master_Transmit(&hi2c2, dev_addr, data_tx, 2, HAL_MAX_DELAY) == HAL_OK) {
-		check_flags |= (1 << 2);
-	}
-
-	// 3. Accel config
-	data_tx[0] = 0x1C; data_tx[1] = 0x00;
-	if (HAL_I2C_Master_Transmit(&hi2c2, dev_addr, data_tx, 2, HAL_MAX_DELAY) == HAL_OK) {
-		check_flags |= (1 << 3);
-	}
-
-	// 4. Enable I2C bypass
-	data_tx[0] = 0x37; data_tx[1] = 0x02;
-	if (HAL_I2C_Master_Transmit(&hi2c2, dev_addr, data_tx, 2, HAL_MAX_DELAY) == HAL_OK) {
-		HAL_Delay(10);
-		check_flags |= (1 << 4);
-	}
-
-	// 5. Power down magnetometer
-	data_tx[0] = 0x0A; data_tx[1] = 0x00;
-	if (HAL_I2C_Master_Transmit(&hi2c2, mag_addr, data_tx, 2, HAL_MAX_DELAY) == HAL_OK) {
-		HAL_Delay(10);
-		check_flags |= (1 << 5);
-	}
-
-	// 6. Enter fuse ROM mode
-	data_tx[0] = 0x0A; data_tx[1] = 0x0F;
-	if (HAL_I2C_Master_Transmit(&hi2c2, mag_addr, data_tx, 2, HAL_MAX_DELAY) == HAL_OK) {
-		HAL_Delay(10);
-		check_flags |= (1 << 6);
-	}
-
-	// 7. Read ASA registers
-	reg = 0x10;
-	if (HAL_I2C_Master_Transmit(&hi2c2, mag_addr, &reg, 1, HAL_MAX_DELAY) == HAL_OK &&
-		HAL_I2C_Master_Receive(&hi2c2, mag_addr, u8sensMagVal, 3, HAL_MAX_DELAY) == HAL_OK) {
-		check_flags |= (1 << 7);
-	}
-
-	// 8. Power down again
-	data_tx[0] = 0x0A; data_tx[1] = 0x00;
-	if (HAL_I2C_Master_Transmit(&hi2c2, mag_addr, data_tx, 2, HAL_MAX_DELAY) == HAL_OK) {
-		HAL_Delay(10);
-		check_flags |= (1 << 8);
-	}
-
-	// 9. Set to continuous mode 2 (retry if needed)
-	uint8_t mode_ok = 0;
-	for (int retry = 0; retry < 10; retry++) {
-		data_tx[0] = 0x0A; data_tx[1] = 0x16;
-		HAL_I2C_Master_Transmit(&hi2c2, mag_addr, data_tx, 2, HAL_MAX_DELAY);
-		HAL_Delay(10);
-		reg = 0x0A;
-		HAL_I2C_Master_Transmit(&hi2c2, mag_addr, &reg, 1, HAL_MAX_DELAY);
-		HAL_I2C_Master_Receive(&hi2c2, mag_addr, &u8destVal, 1, HAL_MAX_DELAY);
-		if (u8destVal == 0x16) {
-			mode_ok = 1;
-			break;
-		}
-	}
-	if (mode_ok) check_flags |= (1 << 9);
-
-	// 10. Confirm ST1 register responds
-	reg = 0x02;
-	if (HAL_I2C_Master_Transmit(&hi2c2, mag_addr, &reg, 1, HAL_MAX_DELAY) == HAL_OK &&
-		HAL_I2C_Master_Receive(&hi2c2, mag_addr, &u8destVal, 1, HAL_MAX_DELAY) == HAL_OK) {
-		check_flags |= (1 << 10);
-	}
-}
-
-IMU_Data GetData__stMPU_9255(void) {
-	uint8_t imuData[14] = {0};
-	uint8_t magData[7] = {0};
-	uint8_t status1 = 0;
-	uint8_t reg;
-	int16_t raw[10] = {0};
-	IMU_Data result;
-
-	// Leer 14 bytes: accel, temp, gyro
-	reg = ACCEL_XOUT_H;
-	HAL_I2C_Master_Transmit(&hi2c2, MPU_ADDR, &reg, 1, HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&hi2c2, MPU_ADDR, imuData, 14, HAL_MAX_DELAY);
-
-	raw[0] = (imuData[0] << 8) | imuData[1];  // AccX
-	raw[1] = (imuData[2] << 8) | imuData[3];  // AccY
-	raw[2] = (imuData[4] << 8) | imuData[5];  // AccZ
-	raw[3] = (imuData[6] << 8) | imuData[7];  // Temp
-	raw[4] = (imuData[8] << 8) | imuData[9];  // GyroX
-	raw[5] = (imuData[10] << 8) | imuData[11]; // GyroY
-	raw[6] = (imuData[12] << 8) | imuData[13]; // GyroZ
-
-	HAL_Delay(10);
-	// Verifica si hay datos magnéticos listos
-	reg = MAG_STATUS_1;
-	HAL_I2C_Master_Transmit(&hi2c2, MAG_ADDR, &reg, 1, HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&hi2c2, MAG_ADDR, &status1, 1, HAL_MAX_DELAY);
-
-	if ((status1 & MAG_DATA_READY) == MAG_DATA_READY) {
-		// Leer datos magnéticos (6 + 1 bytes: HOFL)
-		reg = MAG_HXL;
-		HAL_I2C_Master_Transmit(&hi2c2, MAG_ADDR, &reg, 1, HAL_MAX_DELAY);
-		HAL_I2C_Master_Receive(&hi2c2, MAG_ADDR, magData, 7, HAL_MAX_DELAY);
-
-		// Si no hay overflow
-		if (!(magData[6] & MAG_OVERFLOW_BIT)) {
-			raw[7] = (magData[1] << 8) | magData[0]; // MagX
-			raw[8] = (magData[3] << 8) | magData[2]; // MagY
-			raw[9] = (magData[5] << 8) | magData[4]; // MagZ
-		}
-	}
-
-	// Copiar a estructura
-	result.AccXData  = (float)raw[0];
-	result.AccYData  = (float)raw[1];
-	result.AccZData  = (float)raw[2];
-	result.Temp      = (float)raw[3];
-	result.GyroXData = (float)raw[4];
-	result.GyroYData = (float)raw[5];
-	result.GyroZData = (float)raw[6];
-	result.MagXData  = (float)raw[7];
-	result.MagYData  = (float)raw[8];
-	result.MagZData  = (float)raw[9];
-
-	return result;
-}
-
-Offset3D ComputeMagOffset(uint16_t num_samples, uint16_t delay_ms) {
-    float minX = 32767, maxX = -32768;
-    float minY = 32767, maxY = -32768;
-    float minZ = 32767, maxZ = -32768;
-
-    for (uint16_t i = 0; i < num_samples; i++) {
-        IMU_Data reading = GetData__stMPU_9255();
-        if (reading.MagXData < minX) minX = reading.MagXData;
-        if (reading.MagXData > maxX) maxX = reading.MagXData;
-        if (reading.MagYData < minY) minY = reading.MagYData;
-        if (reading.MagYData > maxY) maxY = reading.MagYData;
-        if (reading.MagZData < minZ) minZ = reading.MagZData;
-        if (reading.MagZData > maxZ) maxZ = reading.MagZData;
-        HAL_Delay(delay_ms);
-    }
-    Offset3D offset;
-    offset.x = (maxX + minX) / 2.0f;
-    offset.y = (maxY + minY) / 2.0f;
-    offset.z = (maxZ + minZ) / 2.0f;
-    return offset;
-}
-
-IMU_Data NormalizeMag(IMU_Data raw, Offset3D offset, Offset3D scale) {
-    raw.MagXData = (raw.MagXData - offset.x) * scale.x;
-    raw.MagYData = (raw.MagYData - offset.y) * scale.y;
-    raw.MagZData = (raw.MagZData - offset.z) * scale.z;
-    return raw;
-}
-
-Offset3D ComputeMagScale(uint16_t num_samples, uint16_t delay_ms, Offset3D offset) {
-    float minX = 32767, maxX = -32768;
-    float minY = 32767, maxY = -32768;
-    float minZ = 32767, maxZ = -32768;
-
-    for (uint16_t i = 0; i < num_samples; i++) {
-        IMU_Data reading = GetData__stMPU_9255();
-        float x = reading.MagXData - offset.x;
-        float y = reading.MagYData - offset.y;
-        float z = reading.MagZData - offset.z;
-
-        if (x < minX) { minX = x; }
-        if (x > maxX) { maxX = x; }
-
-        if (y < minY) { minY = y; }
-        if (y > maxY) { maxY = y; }
-
-        if (z < minZ) { minZ = z; }
-        if (z > maxZ) { maxZ = z; }
-
-
-        HAL_Delay(delay_ms);
-    }
-
-    Offset3D scale;
-    scale.x = 200.0f / (maxX - minX);
-    scale.y = 200.0f / (maxY - minY);
-    scale.z = 200.0f / (maxZ - minZ);
-    return scale;
-}
-
-
-
 
 /* USER CODE END 4 */
 
