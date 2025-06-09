@@ -93,7 +93,7 @@ static volatile IMU_Data lecturasIMU;
 uint16_t check_flags = 0;
 
 volatile uint8_t mpu_data_ready;
-static volatile float dt = 0.01;
+static volatile float dt = 0.1f;
 
 //Magnetometer
 MagCalibration magCal;
@@ -145,7 +145,17 @@ int32_t objetivo4 = 0;
 
 uint8_t data = 0b00001100;
 char num[17] = "";
-float distancia_cm = 1500;//ALOR1bn DISTANCIA DESEADA EN CM
+float distancia_cm = 100;//ALOR1bn DISTANCIA DESEADA EN CM   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+uint8_t paso_actual = 0;
+uint8_t total_pasos = 4;
+uint8_t en_giro = 0;
+uint32_t tiempo_inicio_giro = 0;
+float angulo_inicio_giro = 0.0f;
+float angulo_giro_actual = 0.0f;
+float angulo_objetivo_giro =65.0f;  // Puedes cambiarlo a 45.0f, 180.0f, etc.
+float heading_inicial = 0;
+int8_t sentido_giro = 1; // 1 = izquierda, -1 = derecha
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -247,7 +257,7 @@ int main(void)
   mx /= norm;
   my /= norm;
 
-  float heading_inicial = atan2f(-my, mx) * (180.0f / M_PI);
+  float heading_inicial = atan2f(my, mx) * (180.0f / M_PI);
   if (heading_inicial < 0) heading_inicial += 360.0f;
 
   // Objetivo: 90 grados más
@@ -287,54 +297,102 @@ int main(void)
 enc1_ini = __HAL_TIM_GET_COUNTER(&htim2); // Usa TIM2 o el que te interese
 
 while (1)
-  {
-	enc1 = __HAL_TIM_GET_COUNTER(&htim2);
-	enc2 = __HAL_TIM_GET_COUNTER(&htim3);
+{
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+    lecturasIMU = ReadIMU_Average(10);  // ← 10 lecturas → dt = 0.1 s
+
+    // GIROSCOPIO Y MAGNETÓMETRO
+    float gz = (lecturasIMU.GyroZData - gyroCal.offsetZ) / gyroCal.scaleZ;
+    gz *= 0.00763f; // Convierte a grados por segundo
+
+    float mx = (lecturasIMU.MagXData - magCal.offsetX) / magCal.scaleX;
+    float my = (lecturasIMU.MagYData - magCal.offsetY) / magCal.scaleY;
+    float mz = (lecturasIMU.MagZData - magCal.offsetZ) / magCal.scaleZ;
+
+    float norm = sqrtf(mx * mx + my * my + mz * mz);
+    if (norm != 0.0f) {
+        mx /= norm;
+        my /= norm;
+        mz /= norm;
+    }
+
+    // Cálculo de heading solo informativo (ya no se usa para el giro)
+    heading = atan2f(my, mx) * (180.0f / M_PI);
+    if (heading < 0) heading += 360.0f;
+
+    actualizarAvances();
+    float promedio_cm = calcularPromedioTrasero();
+
+    if (!en_giro) {
+        if (promedio_cm < distancia_cm) {
+            moverMotores(pwmValue);
+        } else {
+            detenerMotores();
+            en_giro = 1;
+            // Fijar dirección de giro manualmente por paso
+            if (paso_actual == 0 || paso_actual == 1 || paso_actual == 2 || paso_actual == 3) {
+                sentido_giro = 1; // izquierda
+            } else {
+                sentido_giro = -1; // derecha si algún día quisieras probar
+            }
+
+            // Reiniciar ángulo
+            angulo_giro_actual = 0.0f;
+            tiempo_inicio_giro = HAL_GetTick();
 
 
-	 HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-	 lecturasIMU = ReadIMU_Average(10);
+            // Reiniciar integración del giro
+            angulo_giro_actual = 0.0f;
 
-	 // CENTRO Y ESCALO
-	          	  //GIROSCOPIO
-	          	  float gz = (lecturasIMU.GyroZData - gyroCal.offsetZ) / gyroCal.scaleZ;
+            tiempo_inicio_giro = HAL_GetTick();
+        }
+    } else {
+        // 1. Integrar ángulo girado con giroscopio
+        angulo_giro_actual += gz * dt;
 
-	          	  gz *= 0.00763f;
-	          	  //MAGNETOMETRO
-				  float mx = (lecturasIMU.MagXData - magCal.offsetX) / magCal.scaleX;
-				  float my = (lecturasIMU.MagYData - magCal.offsetY) / magCal.scaleY;
-				  float mz = (lecturasIMU.MagZData - magCal.offsetZ) / magCal.scaleZ;
+        // 2. Calcular cuánto falta para completar los 90°
+        float error_giro = angulo_objetivo_giro - fabs(angulo_giro_actual);
 
-	          // Normalizar vector (opcional pero recomendado)
-	          float norm = sqrtf(mx * mx + my * my + mz * mz);
-	          if (norm != 0.0f) {
-	              mx /= norm;
-	              my /= norm;
-	              mz /= norm;
-	          }
+        if (fabs(error_giro) > 3.0f) {
+            // Gira en el sentido adecuado
+        	if (sentido_giro == 1) {
+        	    // Gira izquierda
+        	    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, pwmValue);
+        	    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, 0);
+        	    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, pwmValue);
+        	    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_4, 0);
+        	} else {
+        	    // Gira derecha
+        	    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 0);
+        	    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, pwmValue);
+        	    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, 0);
+        	    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_4, pwmValue);
+        	}
 
-	          //CALCULO VARIABLES MEDIBLES
-	          	  //GIROSCOPIO ANGULO
-				  angle += gz * dt;  // Integrate
-				  if (angle >= 360.0f) angle -= 360.0f;
-				  if (angle < 0.0f) angle += 360.0f;
-	          	  //MAGNETOMETRO ANGULO 2
-	          	  heading = atan2f(-my, mx) * (180.0f / M_PI);
-	          	  if (heading < 0) heading += 360.0f;
+        } else {
+            // Giro completado
+            detenerMotores();
 
+            // Esperar 10 segundos
+            if (HAL_GetTick() - tiempo_inicio_giro >= 10000) {
+                paso_actual++;
+                if (paso_actual >= total_pasos) {
+                    // Terminó el cuadrado
+                    while (1); // Se queda detenido
+                }
 
+                // Reiniciar variables de avance
+                enc3_ini = encoder3_count;
+                enc4_ini = encoder4_count;
+                avance3 = 0;
+                avance4 = 0;
+                en_giro = 0;
+            }
+        }
+    }
 
-      actualizarAvances();
-      float objetivoprom = (objetivo3 + objetivo4) / 2.0f;
-      float promedio_cm = calcularPromedioTrasero();
-      if (promedio_cm  < objetivoprom) {
-          moverMotores(pwmValue);
-      } else {
-          detenerMotores();
-      }
-
-
-  }
+    HAL_Delay(10); // para mantener tiempo de ciclo estable
+}
 
 
     /* USER CODE END WHILE */
